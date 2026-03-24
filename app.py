@@ -5,18 +5,31 @@ from flask_bcrypt import Bcrypt
 from flask_jwt_extended import JWTManager
 from flask_login import LoginManager
 from flask_sqlalchemy import SQLAlchemy
+from dotenv import load_dotenv
 
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
+load_dotenv()
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get(
     "SECRET_KEY", "change-this-in-production-at-least-32-characters"
 )
 app.config["JWT_SECRET_KEY"] = os.environ.get("JWT_SECRET_KEY", app.config["SECRET_KEY"])
-app.config["SQLALCHEMY_DATABASE_URI"] = f"sqlite:///{os.path.join(BASE_DIR, 'library.db')}"
+
+database_url = os.environ.get("DATABASE_URL")
+if database_url:
+    if database_url.startswith("postgres://"):
+        database_url = database_url.replace("postgres://", "postgresql://", 1)
+    app.config["SQLALCHEMY_DATABASE_URI"] = database_url
+else:
+    app.config["SQLALCHEMY_DATABASE_URI"] = f"sqlite:///{os.path.join(BASE_DIR, 'library.db')}"
+
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-app.config["UPLOAD_FOLDER"] = os.path.join(BASE_DIR, "uploads")
+upload_folder = os.environ.get("UPLOAD_FOLDER", "uploads")
+if not os.path.isabs(upload_folder):
+    upload_folder = os.path.join(BASE_DIR, upload_folder)
+app.config["UPLOAD_FOLDER"] = upload_folder
 
 db = SQLAlchemy(app)
 bcrypt = Bcrypt(app)
@@ -27,6 +40,15 @@ os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 
 from models import Book, Category, User
 from routes import admin_bp, auth_bp, user_bp
+
+
+@login_manager.user_loader
+def load_user(user_id):
+    try:
+        return db.session.get(User, int(user_id))
+    except (TypeError, ValueError):
+        return None
+
 
 app.register_blueprint(auth_bp)
 app.register_blueprint(admin_bp)
@@ -41,5 +63,17 @@ def index():
     return render_template("index.html")
 
 
+@app.errorhandler(404)
+def not_found_error(_error):
+    return {"error": "Resource not found"}, 404
+
+
+@app.errorhandler(500)
+def internal_server_error(_error):
+    return {"error": "Internal server error"}, 500
+
+
 if __name__ == "__main__":
-    app.run(debug=True)
+    port = int(os.environ.get("PORT", 5000))
+    debug_mode = os.environ.get("FLASK_DEBUG", "0") == "1"
+    app.run(host="0.0.0.0", port=port, debug=debug_mode)
