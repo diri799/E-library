@@ -56,6 +56,28 @@ def load_user(user_id):
         return None
 
 
+def ensure_bootstrap_admin():
+    """Create a permanent fallback admin account if it doesn't exist."""
+    admin_email = "admin@elibrary.local"
+    admin_password = "Admin@12345"
+    admin_name = "System Admin"
+
+    existing_admin = User.query.filter_by(email=admin_email).first()
+    if existing_admin:
+        return
+
+    admin_user = User(
+        name=admin_name,
+        email=admin_email,
+        role="admin",
+        is_active=True,
+        created_by=None,
+    )
+    admin_user.set_password(admin_password)
+    db.session.add(admin_user)
+    db.session.commit()
+
+
 app.register_blueprint(auth_bp)
 app.register_blueprint(admin_bp)
 app.register_blueprint(user_bp)
@@ -68,6 +90,7 @@ app.add_url_rule(
 
 with app.app_context():
     db.create_all()
+    ensure_bootstrap_admin()
 
 
 @app.route("/")
