@@ -43,9 +43,14 @@ jwt = JWTManager(app)
 
 os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 
-from models import Book, Category, User
+from models import AdminRequest, Book, Category, User
 from routes import admin_bp, auth_bp, user_bp
-from routes.admin import create_admin as create_admin_handler
+from routes.admin import (
+    approve_admin_request as approve_admin_request_handler,
+    create_admin as create_admin_handler,
+    deny_admin_request as deny_admin_request_handler,
+    get_admin_requests as get_admin_requests_handler,
+)
 
 
 @login_manager.user_loader
@@ -86,6 +91,24 @@ app.add_url_rule(
     view_func=create_admin_handler,
     methods=["POST"],
     endpoint="api_create_admin",
+)
+app.add_url_rule(
+    "/api/admin/admin-requests",
+    view_func=get_admin_requests_handler,
+    methods=["GET"],
+    endpoint="api_get_admin_requests",
+)
+app.add_url_rule(
+    "/api/admin/admin-requests/<int:request_id>/approve",
+    view_func=approve_admin_request_handler,
+    methods=["PATCH"],
+    endpoint="api_approve_admin_request",
+)
+app.add_url_rule(
+    "/api/admin/admin-requests/<int:request_id>/deny",
+    view_func=deny_admin_request_handler,
+    methods=["PATCH"],
+    endpoint="api_deny_admin_request",
 )
 
 with app.app_context():

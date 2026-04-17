@@ -1,11 +1,14 @@
 import os
 from uuid import uuid4
+from datetime import datetime, UTC
 
 from flask import Blueprint, current_app, jsonify, request
+from flask_jwt_extended import get_jwt_identity
+from sqlalchemy import or_
 from werkzeug.utils import secure_filename
 
 from app import db
-from models import Book, Category, User
+from models import AdminRequest, Book, Category, User
 from routes.auth import role_required
 
 
@@ -39,6 +42,20 @@ def _save_uploaded_file(file_storage, content_type):
     file_storage.save(upload_path)
     file_url = f"/uploads/{stored_name}"
     return file_url
+
+
+def _serialize_admin_request(admin_request):
+    reviewer = db.session.get(User, admin_request.reviewed_by) if admin_request.reviewed_by else None
+    return {
+        "id": admin_request.id,
+        "name": admin_request.name,
+        "email": admin_request.email,
+        "status": admin_request.status,
+        "requestedAt": admin_request.requested_at.isoformat() if admin_request.requested_at else None,
+        "reviewedAt": admin_request.reviewed_at.isoformat() if admin_request.reviewed_at else None,
+        "reviewedBy": reviewer.email if reviewer else None,
+        "denyReason": admin_request.deny_reason,
+    }
 
 
 @admin_bp.route("/categories", methods=["POST"])
@@ -211,8 +228,6 @@ def dashboard():
 @admin_bp.route("/create-admin", methods=["POST"])
 @role_required("admin")
 def create_admin():
-    from flask_jwt_extended import get_jwt_identity
-
     payload = request.get_json(silent=True) or {}
     name = (payload.get("name") or "").strip()
     email = (payload.get("email") or "").strip().lower()
@@ -238,6 +253,118 @@ def create_admin():
         is_active=True,
         created_by=creator_id,
     )
+
+
+@admin_bp.route("/admin-requests", methods=["GET"])
+@role_required("admin")
+def get_admin_requests():
+    status = (request.args.get("status") or "all").strip().lower()
+    search = (request.args.get("search") or "").strip()
+    page = max(int(request.args.get("page", 1) or 1), 1)
+    limit = max(min(int(request.args.get("limit", 10) or 10), 100), 1)
+
+    query = AdminRequest.query
+    if status in {"pending", "approved", "denied"}:
+        query = query.filter(AdminRequest.status == status)
+    if search:
+        search_like = f"%{search}%"
+        query = query.filter(
+            or_(
+                AdminRequest.name.ilike(search_like),
+                AdminRequest.email.ilike(search_like),
+            )
+        )
+
+    total = query.count()
+    items = (
+        query.order_by(AdminRequest.requested_at.desc())
+        .offset((page - 1) * limit)
+        .limit(limit)
+        .all()
+    )
+
+    return (
+        jsonify(
+            {
+                "items": [_serialize_admin_request(item) for item in items],
+                "meta": {"page": page, "limit": limit, "total": total},
+            }
+        ),
+        200,
+    )
+
+
+@admin_bp.route("/admin-requests/<int:request_id>/approve", methods=["PATCH"])
+@role_required("admin")
+def approve_admin_request(request_id):
+    admin_request = db.session.get(AdminRequest, request_id)
+    if not admin_request:
+        return jsonify({"error": "admin request not found"}), 404
+    if admin_request.status != "pending":
+        return jsonify({"error": "only pending requests can be approved"}), 400
+
+    reviewer_id = get_jwt_identity()
+    try:
+        reviewer_id = int(reviewer_id)
+    except (TypeError, ValueError):
+        return jsonify({"error": "invalid admin identity"}), 401
+
+    existing_user = User.query.filter_by(email=admin_request.email).first()
+    if existing_user and existing_user.role == "admin":
+        admin_request.status = "approved"
+        admin_request.reviewed_by = reviewer_id
+        admin_request.reviewed_at = datetime.now(UTC)
+        db.session.commit()
+        return jsonify({"message": "Admin request approved"}), 200
+
+    if existing_user:
+        existing_user.role = "admin"
+        existing_user.is_active = True
+        existing_user.created_by = reviewer_id
+    else:
+        temporary_password = os.urandom(12).hex()
+        new_admin = User(
+            name=admin_request.name,
+            email=admin_request.email,
+            role="admin",
+            is_active=True,
+            created_by=reviewer_id,
+        )
+        new_admin.set_password(temporary_password)
+        db.session.add(new_admin)
+
+    admin_request.status = "approved"
+    admin_request.reviewed_by = reviewer_id
+    admin_request.reviewed_at = datetime.now(UTC)
+    admin_request.deny_reason = None
+    db.session.commit()
+    return jsonify({"message": "Admin request approved"}), 200
+
+
+@admin_bp.route("/admin-requests/<int:request_id>/deny", methods=["PATCH"])
+@role_required("admin")
+def deny_admin_request(request_id):
+    admin_request = db.session.get(AdminRequest, request_id)
+    if not admin_request:
+        return jsonify({"error": "admin request not found"}), 404
+    if admin_request.status != "pending":
+        return jsonify({"error": "only pending requests can be denied"}), 400
+
+    payload = request.get_json(silent=True) or {}
+    reason = (payload.get("reason") or "").strip() or None
+
+    reviewer_id = get_jwt_identity()
+    try:
+        reviewer_id = int(reviewer_id)
+    except (TypeError, ValueError):
+        return jsonify({"error": "invalid admin identity"}), 401
+
+    admin_request.status = "denied"
+    admin_request.deny_reason = reason
+    admin_request.reviewed_by = reviewer_id
+    admin_request.reviewed_at = datetime.now(UTC)
+    db.session.commit()
+    return jsonify({"message": "Admin request denied"}), 200
     new_admin.set_password(password)
     db.session.add(new_admin)
     db.session.commit()
