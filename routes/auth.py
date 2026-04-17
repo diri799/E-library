@@ -4,6 +4,7 @@ from flask import Blueprint, jsonify, request
 from flask_jwt_extended import create_access_token, get_jwt, jwt_required
 
 from app import db
+from models.admin_request import AdminRequest
 from models.user import User
 
 
@@ -34,6 +35,7 @@ def register():
     name = (payload.get("name") or "").strip()
     email = (payload.get("email") or "").strip().lower()
     password = payload.get("password") or ""
+    requested_role = (payload.get("role") or "user").strip().lower()
 
     if not name or not email or not password:
         return jsonify({"error": "name, email, and password are required"}), 400
@@ -47,12 +49,34 @@ def register():
     user.set_password(password)
 
     db.session.add(user)
+
+    admin_request = None
+    if requested_role == "admin":
+        existing_request = AdminRequest.query.filter_by(email=email, status="pending").first()
+        if not existing_request:
+            admin_request = AdminRequest(name=name, email=email, status="pending")
+            db.session.add(admin_request)
+
     db.session.commit()
 
     return (
         jsonify(
             {
                 "message": "registration successful",
+                "requires_admin_approval": requested_role == "admin",
+                "next_step": (
+                    "Wait for admin approval."
+                    if requested_role == "admin"
+                    else "Login to continue."
+                ),
+                "admin_request": (
+                    {
+                        "id": admin_request.id,
+                        "status": admin_request.status,
+                    }
+                    if admin_request
+                    else None
+                ),
                 "user": {
                     "id": user.id,
                     "name": user.name,
