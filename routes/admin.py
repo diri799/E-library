@@ -206,3 +206,55 @@ def dashboard():
         ),
         200,
     )
+
+
+@admin_bp.route("/create-admin", methods=["POST"])
+@role_required("admin")
+def create_admin():
+    from flask_jwt_extended import get_jwt_identity
+
+    payload = request.get_json(silent=True) or {}
+    name = (payload.get("name") or "").strip()
+    email = (payload.get("email") or "").strip().lower()
+    password = payload.get("password") or ""
+
+    if not name or not email or not password:
+        return jsonify({"error": "name, email, and password are required"}), 400
+
+    existing_user = User.query.filter_by(email=email).first()
+    if existing_user:
+        return jsonify({"error": "email is already registered"}), 409
+
+    creator_id = get_jwt_identity()
+    try:
+        creator_id = int(creator_id)
+    except (TypeError, ValueError):
+        return jsonify({"error": "invalid admin identity"}), 401
+
+    new_admin = User(
+        name=name,
+        email=email,
+        role="admin",
+        is_active=True,
+        created_by=creator_id,
+    )
+    new_admin.set_password(password)
+    db.session.add(new_admin)
+    db.session.commit()
+
+    return (
+        jsonify(
+            {
+                "message": "admin created successfully",
+                "user": {
+                    "id": new_admin.id,
+                    "name": new_admin.name,
+                    "email": new_admin.email,
+                    "role": new_admin.role,
+                    "is_active": new_admin.is_active,
+                    "created_by": new_admin.created_by,
+                },
+            }
+        ),
+        201,
+    )

@@ -13,6 +13,8 @@ class User(UserMixin, db.Model):
     email = db.Column(db.String(255), unique=True, nullable=False, index=True)
     password = db.Column(db.String(255), nullable=False)
     role = db.Column(db.String(20), nullable=False, default="user")
+    is_active = db.Column(db.Boolean, nullable=False, default=True)
+    created_by = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=True)
     created_at = db.Column(db.DateTime, nullable=False, default=lambda: datetime.now(UTC))
 
     __table_args__ = (

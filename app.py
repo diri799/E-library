@@ -45,6 +45,7 @@ os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 
 from models import Book, Category, User
 from routes import admin_bp, auth_bp, user_bp
+from routes.admin import create_admin as create_admin_handler
 
 
 @login_manager.user_loader
@@ -58,6 +59,12 @@ def load_user(user_id):
 app.register_blueprint(auth_bp)
 app.register_blueprint(admin_bp)
 app.register_blueprint(user_bp)
+app.add_url_rule(
+    "/api/admin/create-admin",
+    view_func=create_admin_handler,
+    methods=["POST"],
+    endpoint="api_create_admin",
+)
 
 with app.app_context():
     db.create_all()

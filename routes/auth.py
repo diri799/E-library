@@ -27,25 +27,23 @@ def role_required(*allowed_roles):
 
 
 @auth_bp.route("/register", methods=["POST"])
+@auth_bp.route("/api/auth/register", methods=["POST"])
 def register():
     payload = request.get_json(silent=True) or {}
 
     name = (payload.get("name") or "").strip()
     email = (payload.get("email") or "").strip().lower()
     password = payload.get("password") or ""
-    role = (payload.get("role") or "user").strip().lower()
 
     if not name or not email or not password:
         return jsonify({"error": "name, email, and password are required"}), 400
-
-    if role not in {"admin", "user"}:
-        return jsonify({"error": "role must be admin or user"}), 400
 
     existing_user = User.query.filter_by(email=email).first()
     if existing_user:
         return jsonify({"error": "email is already registered"}), 409
 
-    user = User(name=name, email=email, role=role)
+    # Public registration can only create regular users.
+    user = User(name=name, email=email, role="user", is_active=True)
     user.set_password(password)
 
     db.session.add(user)
@@ -68,6 +66,7 @@ def register():
 
 
 @auth_bp.route("/login", methods=["POST"])
+@auth_bp.route("/api/auth/login", methods=["POST"])
 def login():
     payload = request.get_json(silent=True) or {}
 
@@ -80,6 +79,8 @@ def login():
     user = User.query.filter_by(email=email).first()
     if not user or not user.check_password(password):
         return jsonify({"error": "invalid credentials"}), 401
+    if not user.is_active:
+        return jsonify({"error": "account is inactive"}), 403
 
     access_token = create_access_token(
         identity=str(user.id),
