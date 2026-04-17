@@ -12,6 +12,26 @@ from dotenv import load_dotenv
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 load_dotenv()
 
+
+def _normalize_database_url(raw_url):
+    """Normalize DB URL so local SQLite points to a stable file."""
+    if not raw_url:
+        return f"sqlite:///{os.path.join(BASE_DIR, 'library.db')}"
+
+    database_url = raw_url.strip()
+    if database_url.startswith("postgres://"):
+        return database_url.replace("postgres://", "postgresql://", 1)
+
+    sqlite_prefix = "sqlite:///"
+    # sqlite:////... is already absolute; sqlite:///... may be relative.
+    if database_url.startswith(sqlite_prefix) and not database_url.startswith("sqlite:////"):
+        sqlite_path = database_url[len(sqlite_prefix) :]
+        sqlite_path = os.path.abspath(os.path.join(BASE_DIR, sqlite_path))
+        return f"{sqlite_prefix}{sqlite_path}"
+
+    return database_url
+
+
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get(
     "SECRET_KEY", "a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0u1v2w3x4y5z6"
@@ -19,12 +39,7 @@ app.config["SECRET_KEY"] = os.environ.get(
 app.config["JWT_SECRET_KEY"] = os.environ.get("JWT_SECRET_KEY", app.config["SECRET_KEY"])
 
 database_url = os.environ.get("DATABASE_URL")
-if database_url:
-    if database_url.startswith("postgres://"):
-        database_url = database_url.replace("postgres://", "postgresql://", 1)
-    app.config["SQLALCHEMY_DATABASE_URI"] = database_url
-else:
-    app.config["SQLALCHEMY_DATABASE_URI"] = f"sqlite:///{os.path.join(BASE_DIR, 'library.db')}"
+app.config["SQLALCHEMY_DATABASE_URI"] = _normalize_database_url(database_url)
 
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
 upload_folder = os.environ.get("UPLOAD_FOLDER", "uploads")
