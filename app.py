@@ -47,7 +47,7 @@ if not os.path.isabs(upload_folder):
     upload_folder = os.path.join(BASE_DIR, upload_folder)
 app.config["UPLOAD_FOLDER"] = upload_folder
 
-raw_cors_origins = os.environ.get("CORS_ORIGINS", "http://localhost:5173")
+raw_cors_origins = os.environ.get("CORS_ORIGINS", "http://localhost:5173", "https://e-library-management-system.netlify.app")
 cors_origins = [origin.strip() for origin in raw_cors_origins.split(",") if origin.strip()]
 CORS(app, resources={r"/*": {"origins": cors_origins}})
 
